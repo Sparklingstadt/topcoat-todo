@@ -4,7 +4,7 @@ use topcoat::{
     context::{Cx, app_context},
     router::{
         StatusCode,
-        content::{Css, Form},
+        content::{Css, Form, Js},
         page, query_params, route,
     },
     view::{View, view},
@@ -142,7 +142,12 @@ fn mutation_redirect(filter: Filter, result: Result<bool>) -> Redirect {
 
 #[route(GET "/style.css")]
 async fn stylesheet() -> Result<Css<&'static str>> {
-    Ok(Css(include_str!("../assets/style.css")))
+    Ok(Css(include_str!("../assets/dist/app.css")))
+}
+
+#[route(GET "/app.js")]
+async fn javascript() -> Result<Js<&'static str>> {
+    Ok(Js(include_str!("../assets/dist/app.js")))
 }
 
 #[route(GET "/health")]

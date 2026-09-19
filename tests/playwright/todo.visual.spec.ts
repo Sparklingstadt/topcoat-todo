@@ -56,3 +56,16 @@ test('long Japanese and unbroken titles wrap', async ({ page }) => {
   await addTodo(page, 'abcdefghij'.repeat(12));
   await snapshot(page, 'long-titles.png');
 });
+
+test('delete confirmation dialog', async ({ page }) => {
+  await seedTodos(page);
+  await page.getByRole('button', { name: '読みかけの本を10ページ読むを削除', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await snapshot(page, 'delete-confirmation.png');
+});
+
+test('keyboard focus on the new Todo input', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: '新しいTodo' }).focus();
+  await snapshot(page, 'input-focus.png');
+});

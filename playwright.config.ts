@@ -30,7 +30,7 @@ export default defineConfig({
     browserName: 'chromium',
     locale: 'ja-JP',
     timezoneId: 'Asia/Tokyo',
-    colorScheme: 'light',
+    colorScheme: 'dark',
     reducedMotion: 'reduce',
     deviceScaleFactor: 1,
     trace: 'retain-on-failure',

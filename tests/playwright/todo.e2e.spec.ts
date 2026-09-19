@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { test, expect, addTodo, expectCounts } from './fixtures';
 
 test.beforeEach(async ({ page }) => { await page.goto('/'); });
@@ -18,8 +19,10 @@ test('add, filter, complete, restore, and delete through the UI', async ({ page 
   await expectCounts(page, 2, 2, 0);
   await page.getByRole('link', { name: '未完了 2', exact: true }).click();
   await page.getByRole('button', { name: '買い物に行くを削除', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '削除する', exact: true }).click();
   await expectCounts(page, 1, 1, 0);
   await page.getByRole('button', { name: '本を読むを削除', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '削除する', exact: true }).click();
   await expectCounts(page, 0, 0, 0);
   await expect(page.getByRole('heading', { name: '最初のTodoを追加しましょう' })).toBeVisible();
 });
@@ -138,4 +141,95 @@ test('parallel writes are all visible without lost data', async ({ page, request
   for (const title of titles) {
     await expect(page.getByRole('button', { name: `${title}を完了にする`, exact: true })).toBeVisible();
   }
+});
+
+test('deletion requires confirmation; cancel and Escape preserve data and return focus', async ({ page }) => {
+  await addTodo(page, '残しておくTodo');
+  await addTodo(page, '削除を確認するTodo');
+  await page.getByRole('link', { name: '未完了 2', exact: true }).click();
+  const trigger = page.getByRole('button', { name: '削除を確認するTodoを削除', exact: true });
+  const dialog = page.getByRole('alertdialog', { name: 'このTodoを削除しますか？' });
+  await trigger.click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'キャンセル' })).toBeFocused();
+  await page.keyboard.press('/');
+  await expect(dialog.getByRole('button', { name: 'キャンセル' })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(dialog.getByRole('button', { name: '削除する', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('button', { name: 'キャンセル' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'キャンセル' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expectCounts(page, 2, 2, 0);
+  await trigger.click();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await dialog.getByRole('button', { name: '削除する', exact: true }).click();
+  await expect(page).toHaveURL(/\?filter=active$/);
+  await expectCounts(page, 1, 1, 0);
+  await expect(page.getByRole('button', { name: '残しておくTodoを完了にする', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(trigger).toHaveCount(0);
+});
+
+test('keyboard skip link, slash shortcut, and Enter submission work without intercepting typing', async ({ page }) => {
+  await expect(page.getByRole('textbox', { name: '新しいTodo' })).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('link', { name: 'Todoへ移動' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#main')).toBeFocused();
+  await page.keyboard.press('/');
+  const input = page.getByRole('textbox', { name: '新しいTodo' });
+  await expect(input).toBeFocused();
+  await input.fill('キーボード');
+  await input.press('/');
+  await expect(input).toHaveValue('キーボード/');
+  await input.press('Enter');
+  await expect(page.getByRole('button', { name: 'キーボード/を完了にする', exact: true })).toBeVisible();
+  await page.reload();
+  await expectCounts(page, 1, 1, 0);
+});
+
+test('progress exposes correct accessible values for empty, mixed, completed, and restored lists', async ({ page }) => {
+  const progress = page.getByRole('progressbar', { name: 'Todoの完了率' });
+  await expect(progress).toHaveAttribute('aria-valuenow', '0');
+  await addTodo(page, 'ひとつめ');
+  await addTodo(page, 'ふたつめ');
+  await page.getByRole('button', { name: 'ひとつめを完了にする', exact: true }).click();
+  await expect(progress).toHaveAttribute('aria-valuenow', '50');
+  await expect(page.getByRole('group', { name: '2件中1件完了' })).toBeVisible();
+  await page.getByRole('button', { name: 'ふたつめを完了にする', exact: true }).click();
+  await expect(progress).toHaveAttribute('aria-valuenow', '100');
+  await page.getByRole('button', { name: 'ふたつめを未完了に戻す', exact: true }).click();
+  await expect(progress).toHaveAttribute('aria-valuenow', '50');
+});
+
+test('deep links and browser history keep the selected filter', async ({ page }) => {
+  await addTodo(page, '履歴で確認');
+  await page.getByRole('button', { name: '履歴で確認を完了にする', exact: true }).click();
+  await page.goto('/?filter=completed');
+  await expect(page.getByRole('link', { name: '完了 1', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('link', { name: '未完了 0', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'すべてのTodoが完了しました' })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('button', { name: '履歴で確認を未完了に戻す', exact: true })).toBeVisible();
+  await page.goForward();
+  await expect(page.getByRole('link', { name: '未完了 0', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.goto('/?filter=unknown');
+  await expect(page.getByRole('link', { name: 'すべて 1', exact: true })).toHaveAttribute('aria-current', 'page');
+});
+
+
+test('empty, populated, and dialog states have no automated accessibility violations', async ({ page }) => {
+  await expect(page.getByRole('heading', { name: '最初のTodoを追加しましょう' })).toBeVisible();
+  const audit = () => new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect((await audit()).violations).toEqual([]);
+  await addTodo(page, 'アクセシビリティを確認');
+  expect((await audit()).violations).toEqual([]);
+  await page.getByRole('button', { name: 'アクセシビリティを確認を削除', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  expect((await audit()).violations).toEqual([]);
 });
