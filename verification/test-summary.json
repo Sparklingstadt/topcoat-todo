@@ -12,26 +12,26 @@
     "browser": "Chromium"
   },
   "rust_tests": {
-    "passed": 26,
+    "passed": 32,
     "failed": 0
   },
   "playwright": {
-    "startTime": "2026-09-19T11:54:47.578Z",
-    "duration": 23997.796,
-    "expected": 60,
+    "startTime": "2026-09-19T12:12:24.152Z",
+    "duration": 29505.167,
+    "expected": 80,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0
   },
   "projects": {
-    "e2e-desktop": 17,
-    "e2e-mobile": 17,
-    "visual-desktop": 13,
-    "visual-mobile": 13
+    "e2e-desktop": 24,
+    "e2e-mobile": 24,
+    "visual-desktop": 16,
+    "visual-mobile": 16
   },
-  "e2e_tests": 34,
-  "visual_tests": 26,
-  "baselines": 26,
+  "e2e_tests": 48,
+  "visual_tests": 32,
+  "baselines": 32,
   "browser_javascript": "Disabled except the dedicated XSS verification context",
   "visual_regression_probe": {
     "expected_failure": true,
@@ -40,5 +40,16 @@
     "baseline_files_changed": 0
   },
   "rust_fmt": "passed",
-  "rust_clippy_all_targets": "passed"
+  "rust_clippy_all_targets": "passed",
+  "added_tests": {
+    "rust": 6,
+    "e2e": 14,
+    "visual": 6,
+    "total": 26
+  },
+  "baseline_integrity": {
+    "existing_files_checked": 26,
+    "existing_files_changed": 0,
+    "new_files": 6
+  }
 }

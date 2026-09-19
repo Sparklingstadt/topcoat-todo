@@ -137,4 +137,23 @@ mod tests {
         assert!(title_matches("100%_done", "%_"));
         assert!(title_matches("なんでも", ""));
     }
+
+    #[test]
+    fn dates_check_every_month_end_in_common_and_leap_years() {
+        for (year, last_days) in [
+            (2026, [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]),
+            (2028, [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]),
+        ] {
+            for (index, last_day) in last_days.into_iter().enumerate() {
+                let month = index + 1;
+                assert!(valid_date(&format!("{year}-{month:02}-01")));
+                assert!(valid_date(&format!("{year}-{month:02}-{last_day:02}")));
+                assert!(!valid_date(&format!("{year}-{month:02}-00")));
+                assert!(!valid_date(&format!(
+                    "{year}-{month:02}-{:02}",
+                    last_day + 1
+                )));
+            }
+        }
+    }
 }

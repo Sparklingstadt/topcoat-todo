@@ -99,3 +99,30 @@ test('bulk deletion confirmation', async ({ page }) => {
   await page.getByRole('link', { name: '完了済み 1 件を削除', exact: true }).click();
   await snapshot(page, 'bulk-confirmation.png');
 });
+
+test('bulk confirmation without any completed matches', async ({ page }) => {
+  await seedTodos(page);
+  await page.goto('/todos/clear-completed?filter=completed&q=見つからない');
+  await expect(page.getByRole('heading', { name: '削除する完了済みTodoはありません' })).toBeVisible();
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await snapshot(page, 'bulk-empty.png');
+});
+
+test('completed search results distinguish filtered counts from total progress', async ({ page }) => {
+  await seedTodos(page);
+  await searchTodos(page, 'Todo');
+  await page.getByRole('link', { name: '完了 1', exact: true }).click();
+  await snapshot(page, 'completed-search.png');
+});
+
+test('bulk confirmation wraps long titles and renders markup as plain text', async ({ page }) => {
+  await page.goto('/');
+  for (const title of ['長い確認対象のTodoがスマートフォンでも読めること。'.repeat(4), 'abcdefghij'.repeat(12), '<script>alert("確認")</script> & <b>文字列</b>']) {
+    await addTodo(page, title);
+    await page.getByRole('button', { name: `${title}を完了にする`, exact: true }).click();
+  }
+  await page.getByRole('link', { name: '完了済み 3 件を削除', exact: true }).click();
+  await expect(page.locator('.confirmation-list li')).toHaveCount(3);
+  await expect(page.locator('.confirmation-list script, .confirmation-list b')).toHaveCount(0);
+  await snapshot(page, 'bulk-long-titles.png');
+});

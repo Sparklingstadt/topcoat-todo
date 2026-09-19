@@ -402,4 +402,133 @@ mod tests {
         assert_eq!(db.delete_completed(vec![]).await.unwrap(), 0);
         assert_eq!(db.list().await.unwrap().len(), 3);
     }
+
+    #[tokio::test]
+    async fn rejected_edit_keeps_every_original_field() {
+        let (_directory, db) = database().await;
+        db.add_details("保存済み".into(), Some("2028-02-29".into()), Priority::High)
+            .await
+            .unwrap();
+        let id = db.list().await.unwrap()[0].id;
+        db.set_completed(id, true).await.unwrap();
+        for invalid_title in [String::new(), "あ".repeat(201)] {
+            assert!(
+                db.update(id, invalid_title, None, Priority::Low)
+                    .await
+                    .is_err()
+            );
+            let todo = db.list().await.unwrap().remove(0);
+            assert_eq!(todo.id, id);
+            assert_eq!(todo.title, "保存済み");
+            assert!(todo.completed);
+            assert_eq!(todo.due_date.as_deref(), Some("2028-02-29"));
+            assert_eq!(todo.priority, Priority::High);
+        }
+    }
+
+    #[tokio::test]
+    async fn bulk_failure_rolls_back_prior_deletions_in_the_same_request() {
+        let (_directory, db) = database().await;
+        for title in ["最初", "途中で失敗", "対象外"] {
+            db.add(title.into()).await.unwrap();
+        }
+        let todos = db.list().await.unwrap();
+        let first = todos.iter().find(|todo| todo.title == "最初").unwrap().id;
+        let failing = todos
+            .iter()
+            .find(|todo| todo.title == "途中で失敗")
+            .unwrap()
+            .id;
+        for id in [first, failing] {
+            db.set_completed(id, true).await.unwrap();
+        }
+        db.run(|connection| {
+            connection.execute_batch(
+                "CREATE TRIGGER test_reject_delete BEFORE DELETE ON todos
+             WHEN OLD.title = '途中で失敗'
+             BEGIN SELECT RAISE(ABORT, 'injected test failure'); END;",
+            )
+        })
+        .await
+        .unwrap();
+        assert!(db.delete_completed(vec![first, failing]).await.is_err());
+        let remaining = db.list().await.unwrap();
+        assert_eq!(remaining.len(), 3);
+        assert!(
+            remaining
+                .iter()
+                .any(|todo| todo.id == first && todo.completed)
+        );
+        assert!(
+            remaining
+                .iter()
+                .any(|todo| todo.id == failing && todo.completed)
+        );
+        db.run(|connection| connection.execute_batch("DROP TRIGGER test_reject_delete;"))
+            .await
+            .unwrap();
+        assert_eq!(db.delete_completed(vec![first, failing]).await.unwrap(), 2);
+        assert_eq!(db.list().await.unwrap()[0].title, "対象外");
+    }
+
+    #[tokio::test]
+    async fn concurrent_edit_and_completion_preserve_both_changes() {
+        let (_directory, db) = database().await;
+        db.add("変更前".into()).await.unwrap();
+        let id = db.list().await.unwrap()[0].id;
+        let (edited, completed) = tokio::join!(
+            db.update(
+                id,
+                "変更後".into(),
+                Some("2028-03-01".into()),
+                Priority::High
+            ),
+            db.set_completed(id, true)
+        );
+        assert!(edited.unwrap());
+        assert!(completed.unwrap());
+        let todo = db.list().await.unwrap().remove(0);
+        assert_eq!(todo.title, "変更後");
+        assert!(todo.completed);
+        assert_eq!(todo.due_date.as_deref(), Some("2028-03-01"));
+        assert_eq!(todo.priority, Priority::High);
+    }
+
+    #[tokio::test]
+    async fn tied_dates_use_newest_id_without_losing_duplicate_titles() {
+        let (_directory, db) = database().await;
+        let mut ids = Vec::new();
+        for _ in 0..3 {
+            db.add_details("同じTodo".into(), Some("2028-03-01".into()), Priority::High)
+                .await
+                .unwrap();
+            ids.push(db.list().await.unwrap()[0].id);
+        }
+        assert_eq!(
+            db.list()
+                .await
+                .unwrap()
+                .iter()
+                .map(|todo| todo.id)
+                .collect::<Vec<_>>(),
+            vec![ids[2], ids[1], ids[0]]
+        );
+        db.update(
+            ids[0],
+            "最初だけ変更".into(),
+            Some("2028-03-01".into()),
+            Priority::High,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            db.list()
+                .await
+                .unwrap()
+                .iter()
+                .map(|todo| todo.id)
+                .collect::<Vec<_>>(),
+            vec![ids[2], ids[1], ids[0]]
+        );
+    }
 }

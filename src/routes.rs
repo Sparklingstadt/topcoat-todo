@@ -479,4 +479,22 @@ mod tests {
         }
         assert!(confirmed_ids(&vec!["1"; 1001].join(",")).is_none());
     }
+
+    #[test]
+    fn bulk_selection_accepts_full_capacity_and_rejects_oversized_payloads() {
+        let maximum_ids = (1..=1000).collect::<Vec<i64>>();
+        let selection = maximum_ids
+            .iter()
+            .map(i64::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        assert_eq!(confirmed_ids(&selection), Some(maximum_ids));
+        let largest_ids = vec![i64::MAX.to_string(); 1000].join(",");
+        assert_eq!(largest_ids.len(), 19_999);
+        assert_eq!(confirmed_ids(&largest_ids).unwrap().len(), 1000);
+        assert!(confirmed_ids(&format!("{selection},1001")).is_none());
+        // Numerically valid zero-padded IDs must still obey the byte limit.
+        let oversized = format!("{}1", "0".repeat(20_000));
+        assert!(confirmed_ids(&oversized).is_none());
+    }
 }
