@@ -1,0 +1,20 @@
+[package]
+name = "topcoat-todo"
+version = "0.1.0"
+edition = "2024"
+description = "A Japanese Todo app built with Topcoat, SQLite, and Docker"
+license = "MIT"
+repository = "https://github.com/Sparklingstadt/topcoat-todo"
+publish = false
+
+[dependencies]
+topcoat = { version = "=0.8.1", default-features = false, features = ["router", "view", "serve", "discover"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+strip = true

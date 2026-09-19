@@ -1,0 +1,16 @@
+{
+  "name": "topcoat-todo-tests",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:e2e": "playwright test --project=e2e-desktop --project=e2e-mobile",
+    "test:visual": "playwright test --project=visual-desktop --project=visual-mobile",
+    "test:visual:update": "npm run test:visual -- --update-snapshots",
+    "test:report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

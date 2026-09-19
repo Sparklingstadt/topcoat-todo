@@ -1,0 +1,53 @@
+name: topcoat-todo
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+    ports:
+      - "127.0.0.1:${TODO_PORT:-3000}:3000"
+    volumes:
+      - todo-data:/app/data
+    restart: unless-stopped
+  tools:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: tools
+    image: topcoat-todo-tools
+    working_dir: /app
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/app/target
+    command: cargo check --locked
+  browser-tests:
+    profiles: ["test"]
+    build:
+      context: .
+      target: browser-tests
+    init: true
+    shm_size: 1gb
+    volumes:
+      - ./tests/playwright:/app/tests/playwright
+      - ./test-results:/app/test-results
+      - ./playwright-report:/app/playwright-report
+    # Each Playwright test starts its own binary + temporary SQLite database.
+    # This service has no connection to the app service's volume or host port.
+    network_mode: none
+  report:
+    profiles: ["report"]
+    build:
+      context: .
+      target: browser-tests
+    image: topcoat-todo-browser-tests
+    init: true
+    command: ["npm", "run", "test:report", "--", "--host", "0.0.0.0", "--port", "9323"]
+    ports:
+      - "127.0.0.1:9323:9323"
+    volumes:
+      - ./playwright-report:/app/playwright-report:ro
+volumes:
+  todo-data:
+  cargo-registry:
+  cargo-target:

@@ -1,0 +1,14 @@
+{
+  "expected_failure": true,
+  "exit_code": 1,
+  "stats": {
+    "startTime": "2026-09-19T10:05:58.425Z",
+    "duration": 6647.431,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "change": "Temporary h1 color #ff00ff injected only into test browser",
+  "baseline_modified": false
+}

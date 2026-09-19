@@ -1,0 +1,32 @@
+{
+  "date": "2026-09-19",
+  "environment": {
+    "os": "Linux",
+    "architecture": "arm64",
+    "rust": "1.98.1",
+    "playwright": "1.63.0",
+    "browser": "Chromium"
+  },
+  "rust_tests": {
+    "passed": 15,
+    "failed": 0
+  },
+  "playwright": {
+    "startTime": "2026-09-19T10:06:45.072Z",
+    "duration": 13775.204,
+    "expected": 32,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "e2e_tests": 18,
+  "visual_tests": 14,
+  "baselines": 14,
+  "visual_regression_probe": {
+    "expected_failure": true,
+    "different_pixels": 587,
+    "baseline_files_changed": 0
+  },
+  "rust_fmt": "passed",
+  "rust_clippy_all_targets": "passed"
+}
