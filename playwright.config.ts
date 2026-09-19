@@ -28,6 +28,7 @@ export default defineConfig({
   ],
   use: {
     browserName: 'chromium',
+    javaScriptEnabled: false,
     locale: 'ja-JP',
     timezoneId: 'Asia/Tokyo',
     colorScheme: 'light',

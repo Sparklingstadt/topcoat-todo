@@ -1,11 +1,11 @@
-name: topcoat-todo
+name: topcoat-todo-classic
 services:
   app:
     build:
       context: .
       target: runtime
     ports:
-      - "127.0.0.1:${TODO_PORT:-3000}:3000"
+      - "127.0.0.1:${TODO_PORT:-3001}:3000"
     volumes:
       - todo-data:/app/data
     restart: unless-stopped
@@ -14,7 +14,7 @@ services:
     build:
       context: .
       target: tools
-    image: topcoat-todo-tools
+    image: topcoat-todo-classic-tools
     working_dir: /app
     volumes:
       - .:/app
@@ -40,11 +40,11 @@ services:
     build:
       context: .
       target: browser-tests
-    image: topcoat-todo-browser-tests
+    image: topcoat-todo-classic-browser-tests
     init: true
     command: ["npm", "run", "test:report", "--", "--host", "0.0.0.0", "--port", "9323"]
     ports:
-      - "127.0.0.1:9323:9323"
+      - "127.0.0.1:${TODO_REPORT_PORT:-9324}:9323"
     volumes:
       - ./playwright-report:/app/playwright-report:ro
 volumes:

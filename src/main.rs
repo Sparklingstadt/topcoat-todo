@@ -1,4 +1,5 @@
 mod db;
+mod model;
 mod routes;
 mod ui;
 

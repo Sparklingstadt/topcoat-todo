@@ -1,4 +1,5 @@
-use rusqlite::{Connection, params};
+use crate::model::Priority;
+use rusqlite::{Connection, TransactionBehavior, params};
 use std::{path::PathBuf, time::Duration};
 
 #[derive(Clone)]
@@ -6,10 +7,13 @@ pub struct Database {
     path: PathBuf,
 }
 
+#[derive(Clone, Debug)]
 pub struct Todo {
     pub id: i64,
     pub title: String,
     pub completed: bool,
+    pub due_date: Option<String>,
+    pub priority: Priority,
 }
 
 impl Database {
@@ -19,14 +23,26 @@ impl Database {
             std::fs::create_dir_all(parent)?;
         }
         db.run(|connection| {
-            connection.execute_batch(
-                "PRAGMA journal_mode = WAL;
-                 CREATE TABLE IF NOT EXISTS todos (
+            connection.execute_batch("PRAGMA journal_mode = WAL;")?;
+            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch(
+                "CREATE TABLE IF NOT EXISTS todos (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 200),
                     completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0, 1))
                  );",
             )?;
+            let columns: Vec<String> = {
+                let mut statement = transaction.prepare("PRAGMA table_info(todos)")?;
+                statement.query_map([], |row| row.get(1))?.collect::<rusqlite::Result<_>>()?
+            };
+            if !columns.iter().any(|name| name == "due_date") {
+                transaction.execute_batch("ALTER TABLE todos ADD COLUMN due_date TEXT;")?;
+            }
+            if !columns.iter().any(|name| name == "priority") {
+                transaction.execute_batch("ALTER TABLE todos ADD COLUMN priority INTEGER NOT NULL DEFAULT 1 CHECK(priority BETWEEN 0 AND 2);")?;
+            }
+            transaction.commit()?;
             Ok(())
         })
         .await?;
@@ -38,13 +54,13 @@ impl Database {
     async fn run<T, F>(&self, operation: F) -> topcoat::Result<T>
     where
         T: Send + 'static,
-        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+        F: FnOnce(&mut Connection) -> rusqlite::Result<T> + Send + 'static,
     {
         let path = self.path.clone();
         Ok(tokio::task::spawn_blocking(move || {
-            let connection = Connection::open(path)?;
+            let mut connection = Connection::open(path)?;
             connection.busy_timeout(Duration::from_secs(5))?;
-            operation(&connection)
+            operation(&mut connection)
         })
         .await??)
     }
@@ -52,7 +68,7 @@ impl Database {
     pub async fn list(&self) -> topcoat::Result<Vec<Todo>> {
         self.run(|connection| {
             let mut statement = connection.prepare(
-                "SELECT id, title, completed FROM todos ORDER BY completed ASC, id DESC",
+                "SELECT id, title, completed, due_date, priority FROM todos ORDER BY completed ASC, priority DESC, due_date IS NULL, due_date ASC, id DESC",
             )?;
             statement
                 .query_map([], |row| {
@@ -60,6 +76,8 @@ impl Database {
                         id: row.get(0)?,
                         title: row.get(1)?,
                         completed: row.get(2)?,
+                        due_date: row.get(3)?,
+                        priority: Priority::from_number(row.get(4)?),
                     })
                 })?
                 .collect()
@@ -67,10 +85,58 @@ impl Database {
         .await
     }
 
+    #[cfg(test)]
     pub async fn add(&self, title: String) -> topcoat::Result<()> {
+        self.add_details(title, None, Priority::Normal).await
+    }
+
+    pub async fn add_details(
+        &self,
+        title: String,
+        due_date: Option<String>,
+        priority: Priority,
+    ) -> topcoat::Result<()> {
         self.run(move |connection| {
-            connection.execute("INSERT INTO todos(title) VALUES (?1)", params![title])?;
+            connection.execute(
+                "INSERT INTO todos(title, due_date, priority) VALUES (?1, ?2, ?3)",
+                params![title, due_date, priority as i64],
+            )?;
             Ok(())
+        })
+        .await
+    }
+
+    pub async fn update(
+        &self,
+        id: i64,
+        title: String,
+        due_date: Option<String>,
+        priority: Priority,
+    ) -> topcoat::Result<bool> {
+        self.run(move |connection| {
+            Ok(connection.execute(
+                "UPDATE todos SET title = ?1, due_date = ?2, priority = ?3 WHERE id = ?4",
+                params![title, due_date, priority as i64, id],
+            )? == 1)
+        })
+        .await
+    }
+
+    // The confirmation form sends a snapshot of IDs. Newly completed items or
+    // items restored to active after confirmation must not be deleted.
+    pub async fn delete_completed(&self, ids: Vec<i64>) -> topcoat::Result<usize> {
+        self.run(move |connection| {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let mut count = 0;
+            for id in ids {
+                count += transaction.execute(
+                    "DELETE FROM todos WHERE id = ?1 AND completed = 1",
+                    params![id],
+                )?;
+            }
+            transaction.commit()?;
+            Ok(count)
         })
         .await
     }
@@ -229,5 +295,111 @@ mod tests {
         assert!(db.list().await.unwrap().is_empty());
         db.add("あ".repeat(200)).await.unwrap();
         assert_eq!(db.list().await.unwrap()[0].title.chars().count(), 200);
+    }
+    #[tokio::test]
+    async fn migration_preserves_v010_rows_and_is_safe_to_repeat() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("old.sqlite3");
+        let connection = Connection::open(&path).unwrap();
+        connection.execute_batch("CREATE TABLE todos (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL CHECK(length(trim(title)) BETWEEN 1 AND 200), completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0, 1))); INSERT INTO todos (id,title,completed) VALUES (41,'以前のTodo',1);").unwrap();
+        drop(connection);
+        for _ in 0..2 {
+            let db = Database::open(&path).await.unwrap();
+            let todo = db.list().await.unwrap().remove(0);
+            assert_eq!(todo.id, 41);
+            assert_eq!(todo.title, "以前のTodo");
+            assert!(todo.completed);
+            assert_eq!(todo.due_date, None);
+            assert_eq!(todo.priority, Priority::Normal);
+        }
+        let db = Database::open(&path).await.unwrap();
+        db.add("新しいTodo".into()).await.unwrap();
+        assert_eq!(db.list().await.unwrap()[0].id, 42);
+    }
+
+    #[tokio::test]
+    async fn edit_persists_fields_preserves_completion_and_can_clear_date() {
+        let (directory, db) = database().await;
+        db.add("編集前".into()).await.unwrap();
+        let id = db.list().await.unwrap()[0].id;
+        db.set_completed(id, true).await.unwrap();
+        assert!(
+            db.update(
+                id,
+                "編集後".into(),
+                Some("2028-02-29".into()),
+                Priority::High
+            )
+            .await
+            .unwrap()
+        );
+        drop(db);
+        let db = Database::open(directory.path().join("nested/todos.sqlite3"))
+            .await
+            .unwrap();
+        let todo = db.list().await.unwrap().remove(0);
+        assert_eq!(todo.title, "編集後");
+        assert!(todo.completed);
+        assert_eq!(todo.priority, Priority::High);
+        assert_eq!(todo.due_date.as_deref(), Some("2028-02-29"));
+        assert!(
+            db.update(id, "期限なし".into(), None, Priority::Low)
+                .await
+                .unwrap()
+        );
+        let todo = db.list().await.unwrap().remove(0);
+        assert!(todo.completed);
+        assert_eq!(todo.due_date, None);
+        assert_eq!(todo.priority, Priority::Low);
+        assert!(
+            !db.update(i64::MAX, "存在しない".into(), None, Priority::Normal)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn priority_then_date_order_is_stable_and_completion_stays_last() {
+        let (_directory, db) = database().await;
+        for (title, date, priority) in [
+            ("低・早い", Some("2026-01-01"), Priority::Low),
+            ("高・期限なし", None, Priority::High),
+            ("高・遅い", Some("2026-12-01"), Priority::High),
+            ("高・早い", Some("2026-02-01"), Priority::High),
+            ("通常", None, Priority::Normal),
+        ] {
+            db.add_details(title.into(), date.map(str::to_owned), priority)
+                .await
+                .unwrap();
+        }
+        let todos = db.list().await.unwrap();
+        assert_eq!(
+            todos
+                .iter()
+                .map(|todo| todo.title.as_str())
+                .collect::<Vec<_>>(),
+            ["高・早い", "高・遅い", "高・期限なし", "通常", "低・早い"]
+        );
+        db.set_completed(todos[0].id, true).await.unwrap();
+        assert_eq!(db.list().await.unwrap().last().unwrap().title, "高・早い");
+    }
+
+    #[tokio::test]
+    async fn bulk_delete_only_removes_selected_items_still_completed() {
+        let (_directory, db) = database().await;
+        for title in ["対象", "未完了に戻す", "後で完了", "未完了"] {
+            db.add(title.into()).await.unwrap();
+        }
+        let todos = db.list().await.unwrap();
+        let id = |title: &str| todos.iter().find(|todo| todo.title == title).unwrap().id;
+        db.set_completed(id("対象"), true).await.unwrap();
+        db.set_completed(id("未完了に戻す"), true).await.unwrap();
+        let snapshot = vec![id("対象"), id("未完了に戻す"), id("未完了"), i64::MAX];
+        db.set_completed(id("未完了に戻す"), false).await.unwrap();
+        db.set_completed(id("後で完了"), true).await.unwrap();
+        assert_eq!(db.delete_completed(snapshot.clone()).await.unwrap(), 1);
+        assert_eq!(db.delete_completed(snapshot).await.unwrap(), 0);
+        assert_eq!(db.delete_completed(vec![]).await.unwrap(), 0);
+        assert_eq!(db.list().await.unwrap().len(), 3);
     }
 }

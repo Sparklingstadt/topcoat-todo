@@ -117,3 +117,15 @@ export async function expectCounts(page: Page, all: number, active: number, comp
   await expect(page.getByRole('link', { name: `未完了 ${active}`, exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: `完了 ${completed}`, exact: true })).toBeVisible();
 }
+
+export async function addDetailedTodo(page: Page, title: string, date: string, priority: 'high' | 'normal' | 'low') {
+  await page.locator('.add-options > summary').click();
+  await page.getByLabel(/^期限\s*任意$/).fill(date);
+  await page.getByLabel('優先度', { exact: true }).selectOption(priority);
+  await addTodo(page, title);
+}
+
+export async function searchTodos(page: Page, query: string) {
+  await page.getByRole('searchbox', { name: 'Todoを検索' }).fill(query);
+  await page.getByRole('button', { name: '検索', exact: true }).click();
+}

@@ -21,7 +21,7 @@ case "${1:-all}" in
     ;;
   report)
     docker compose up --build -d report
-    echo 'Playwright report: http://localhost:9323'
+    echo "Playwright report: http://localhost:${TODO_REPORT_PORT:-9324}"
     ;;
   *)
     echo 'Usage: ./scripts/test.sh [all|unit|e2e|visual|update|report]' >&2

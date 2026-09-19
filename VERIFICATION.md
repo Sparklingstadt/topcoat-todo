@@ -1,38 +1,48 @@
 # 動作確認
 
-## 自動テストの追加（2026-09-19）
+## Topcoatのみでの機能強化（2026-09-19）
 
-- Rust単体・DBテスト: **15 / 15 成功**（7件の入力・ルート処理、8件のSQLite処理）
-- Playwright E2E: **18 / 18 成功**（デスクトップ9件、スマートフォン9件）
-- Playwright画像回帰: **14 / 14 成功**（7画面 × 2サイズ）
-- 通常実行の失敗・スキップ・再試行: **0**
-- `cargo fmt --check` と `cargo clippy --locked --all-targets -- -D warnings`: 成功
-- `./scripts/test.sh` による一括実行も成功
+対象は `v0.1.0`（`1bda6f492ea64f8ad197ae07c9ebf92555063346`）から分岐した `feature/topcoat-enhancements` です。編集・期限・優先度・検索・完了済みの一括削除を追加しました。画面とフォーム処理はTopcoatで実装し、ブラウザー用JavaScriptやReactは追加していません。
 
-画像比較の基準はLinux ARM64 / Playwright 1.63.0 / Chromiumで生成。初回作成後、基準を更新しない通常実行でもすべて合格しました。見出しの色だけを一時変更した検出確認では587ピクセルの差分で失敗し、復元後のE2E・画像比較32件はすべて再合格しました。14枚の基準画像のハッシュは検出確認前後で同一です。
+| 検証 | 結果 |
+| --- | --- |
+| Rust単体・DBテスト | **26 / 26 成功** |
+| Playwright E2E | **34 / 34 成功**（17シナリオ × 2サイズ） |
+| Playwright画像回帰 | **26 / 26 成功**（13画面 × 2サイズ） |
+| 通常実行の失敗・スキップ・再試行 | **0** |
+| `cargo fmt --check` | 成功 |
+| `cargo clippy --locked --all-targets -- -D warnings` | 成功 |
 
-テストはケースごとに新しいRustプロセスと一時SQLite DBを作り、既存アプリのDBを利用しません。サーバーを実際に再起動するE2Eも含まれます。
+`./scripts/test.sh` で全86件をまとめて実行しました。画像基準を作成・目視確認した後、基準を更新しない通常実行で比較しています。ChromiumのJavaScriptを無効にして操作し、XSS検証用の別コンテキストだけ有効にしています。
 
-- `verification/test-summary.json`: 最終結果の要約
-- `playwright-report/index.html`: 実行時に生成するHTMLレポート（Git管理対象外。`./scripts/test.sh report` で閲覧）
-- `tests/playwright/__screenshots__/linux-arm64/`: 基準PNG 14枚
-- `verification/regression-proof/`: 意図的な画像差分の検出証跡
+### 機能とデータ
 
-今回のブラウザーテストはChromiumのみ。WebKit・Firefoxおよび実機端末での確認は含みません。画像基準は同じOS・CPU・ブラウザー・フォント環境で比較します。
+- 追加・編集・キャンセル、完了状態の維持、期限の設定・解除、優先度と期限による並び順
+- 実在する日付・うるう年・0001〜9999年の検証、タイトル200文字制限、優先度の不正値の拒否
+- 編集時の入力エラーで内容を保持し、不正なリクエストでは保存済みデータを変更しない
+- 日本語・英字・記号の部分一致検索。英字の大文字・小文字を区別せず、`%` と `_` は文字として扱う
+- 検索条件と状態タブを編集・完了・削除の後も維持
+- 一括削除の確認画面、キャンセル、確認チェック、検索範囲の尊重
+- 確認後に未完了へ戻したTodoと新たに完了したTodoを削除しないことを、別HTTPリクエストを挟んで検証
+- v0.1.0形式のSQLiteを自動移行し、既存のID・タイトル・完了状態を維持。移行の再実行も安全
+- 編集内容と完了状態がサーバー再起動後も残ること、同時追加でデータを失わないこと
+- HTMLエスケープ、別Originからの変更拒否、不正なID・HTTPメソッドの処理
 
-## 初回実装時の動作確認
+各テストは専用のRustプロセスと一時SQLiteを使い、終了時に破棄します。実行用コンテナの外部ネットワークは無効で、通常起動用DBには接続しません。
 
-2026-09-19、macOS上のDocker Desktop（Linux ARM64）、Rust 1.98.1、Topcoat 0.8.1で確認しました。
+### 画面と画像回帰
 
-- `cargo fmt --check`、`cargo clippy --locked -- -D warnings`：成功
-- Dockerのリリースビルドとlocalhost:3000での起動：成功
-- HTTPテスト：10項目群すべて成功。日本語Todoの追加、完了と未完了への変更、絞り込み、削除、空白・文字数制限、HTMLエスケープ、クロスオリジン更新の拒否、8件の同時追加、不正なIDを確認
-- ChromeでEnterキー・追加ボタン・完了ボタン・絞り込みリンク・削除ボタンを実操作：成功
-- Docker再起動とイメージ再ビルドによるコンテナ再作成後も、2件のTodoと完了状態が維持されることを確認
-- 1280×900と390×844で表示を確認。390px幅で文書幅も390px、横方向のはみ出しなし
-- axe-core 4.12.1による最終画面の自動検査：42項目合格、違反0、判定保留0（自動検査の範囲）
-- 検証用ブラウザーのページエラー：なし
+Linux ARM64、Rust 1.98.1、Topcoat 0.8.1、Playwright 1.63.0 / Chromiumで確認しました。表示サイズは1280×900と390×844です。
 
-`preview-desktop.png` と `preview-mobile.png` は2件の検証用Todoを表示した画面例です。検証後、それらのTodoは削除しました。
+空のリスト、混在一覧、未完了・完了タブ、全件完了、入力エラー、長いタイトル、期限・優先度、編集、編集エラー、検索結果、検索0件、一括削除の確認を撮影しています。各画面の横方向のはみ出しも検査します。追加フォーム・編集・確認・検索の実画像を目視確認しました。
 
-検証の再現方法、起動・停止・開発手順は [README.md](README.md) を参照してください。
+混在一覧の見出しの色だけを一時変更した検出確認では、**587ピクセルの差分で想定どおり1件失敗**しました。26枚の基準画像のSHA-256は前後で同一です。一時テストを削除した後、通常の全テストを再実行して合格しました。
+
+- [結果のJSON要約](verification/test-summary.json)
+- [基準PNG 26枚](tests/playwright/__screenshots__/linux-arm64/)
+- [意図的な画像差分の証跡](verification/regression-proof/README.md)
+- [デスクトップの画面例](preview-desktop.png)・[スマートフォンの画面例](preview-mobile.png)（合成テストデータ）
+
+HTMLレポートはGit管理対象外の `playwright-report/` に生成します。`./scripts/test.sh report` で [http://localhost:9324](http://localhost:9324) に表示できます。アプリは専用Composeプロジェクト `topcoat-todo-classic` の [http://localhost:3001](http://localhost:3001) で起動します。
+
+今回のブラウザーテストはChromiumのみです。WebKit・Firefox、実機端末、AMD64の画像比較は未検証です。画像基準は同じOS・CPU・ブラウザー・フォント環境で使用してください。起動方法と基準更新の手順は [README.md](README.md) を参照してください。
